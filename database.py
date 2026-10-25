@@ -1,52 +1,45 @@
 
 import os
-import mysql.connector
 import streamlit as st
-from dotenv import load_dotenv
-load_dotenv()
+import mysql.connector
+
 
 def get_connection():
-    """Use Aiven on Streamlit Cloud and local MySQL on your PC."""
+    """Use Render environment variables or Streamlit secrets for cloud,
+    and local MySQL for local development."""
 
-    try:
-        # Try to read cloud credentials if Streamlit secrets exist.
+    # Option 1: Render environment variables
+    if os.getenv("MYSQL_HOST"):
+        host = os.getenv("MYSQL_HOST")
+        port = int(os.getenv("MYSQL_PORT", "3306"))
+        user = os.getenv("MYSQL_USER")
+        password = os.getenv("MYSQL_PASSWORD")
+        database = os.getenv("MYSQL_DATABASE")
+
+    # Option 2: Streamlit Cloud secrets
+    else:
         try:
             db = st.secrets["mysql"]
+            host = db["host"]
+            port = int(db["port"])
+            user = db["user"]
+            password = db["password"]
+            database = db["database"]
+
+        # Option 3: Local MySQL
         except (KeyError, FileNotFoundError):
-            db = None
-        except Exception as e:
-            # No secrets.toml file is normal for local development.
-            if "No secrets found" in str(e):
-                db = None
-            else:
-                raise
+            host = "localhost"
+            port = 3306
+            user = os.getenv("LOCAL_MYSQL_USER", "root")
+            password = os.getenv("LOCAL_MYSQL_PASSWORD", "")
+            database = "ml_dataset_management"
 
-        if db is not None:
-            # Cloud database: Aiven MySQL
-            connection = mysql.connector.connect(
-                host=db["host"],
-                port=int(db["port"]),
-                user=db["user"],
-                password=db["password"],
-                database=db["database"],
-                ssl_disabled=False,
-                connection_timeout=10
-            )
-        else:
-            # Local database: your computer
-            connection = mysql.connector.connect(
-                host="127.0.0.1",
-                port=3306,
-                user="root",
-                password=os.getenv("LOCAL_MYSQL_PASSWORD", ""),
-                database="ml_dataset_management",
-                connection_timeout=10
-            )
-
-        return connection
-
-    except mysql.connector.Error as e:
-        st.error(f"Database connection failed: {e}")
-        raise
-
-
+    return mysql.connector.connect(
+        host=host,
+        port=port,
+        user=user,
+        password=password,
+        database=database,
+        ssl_disabled=(host == "localhost" or host == "127.0.0.1"),
+        connection_timeout=15
+    )

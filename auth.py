@@ -9,6 +9,7 @@ def register_user(name, email, password, role="User"):
 
     try:
         connection = get_connection()
+        print("Registration DB:", connection.server_host, connection.server_port)
         cursor = connection.cursor()
 
         # Check whether this email already exists
@@ -56,6 +57,7 @@ def login_user(email, password):
 
     try:
         connection = get_connection()
+        print("Login DB:", connection.server_host, connection.server_port)
         cursor = connection.cursor(dictionary=True)
 
         # Use lowercase users to match the Aiven table name

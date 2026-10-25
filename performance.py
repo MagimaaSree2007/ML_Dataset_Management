@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 from database import get_connection
@@ -8,30 +9,33 @@ from database import get_connection
 # ==================================================
 
 def get_models():
+    connection = None
+    cursor = None
 
-    connection = get_connection()
-    cursor = connection.cursor(dictionary=True)
+    try:
+        connection = get_connection()
+        cursor = connection.cursor(dictionary=True)
 
-    query = """
-        SELECT
-            m.model_id,
-            m.model_name,
-            d.dataset_name,
-            m.problem_type
-        FROM Models m
-        JOIN Datasets d
-        ON m.dataset_id = d.dataset_id
-        ORDER BY m.model_name
-    """
+        query = """
+            SELECT
+                m.model_id,
+                m.model_name,
+                d.dataset_name,
+                m.problem_type
+            FROM models m
+            JOIN datasets d
+                ON m.dataset_id = d.dataset_id
+            ORDER BY m.model_name
+        """
 
-    cursor.execute(query)
+        cursor.execute(query)
+        return cursor.fetchall()
 
-    models = cursor.fetchall()
-
-    cursor.close()
-    connection.close()
-
-    return models
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
 
 
 # ==================================================
@@ -48,13 +52,29 @@ def save_performance(
     mae,
     r2_score
 ):
+    connection = None
+    cursor = None
 
-    connection = get_connection()
-    cursor = connection.cursor()
+    try:
+        connection = get_connection()
+        cursor = connection.cursor()
 
-    query = """
-        INSERT INTO Performance
-        (
+        query = """
+            INSERT INTO performance
+            (
+                model_id,
+                accuracy,
+                precision_score,
+                recall_score,
+                f1_score,
+                rmse,
+                mae,
+                r2_score
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+
+        values = (
             model_id,
             accuracy,
             precision_score,
@@ -64,30 +84,20 @@ def save_performance(
             mae,
             r2_score
         )
-        VALUES
-        (
-            %s, %s, %s, %s, %s,
-            %s, %s, %s
-        )
-    """
 
-    values = (
-        model_id,
-        accuracy,
-        precision_score,
-        recall_score,
-        f1_score,
-        rmse,
-        mae,
-        r2_score
-    )
+        cursor.execute(query, values)
+        connection.commit()
 
-    cursor.execute(query, values)
+    except Exception:
+        if connection:
+            connection.rollback()
+        raise
 
-    connection.commit()
-
-    cursor.close()
-    connection.close()
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
 
 
 # ==================================================
@@ -95,7 +105,6 @@ def save_performance(
 # ==================================================
 
 def performance_management():
-
     st.title("📈 Performance Management")
 
     st.write(
@@ -104,29 +113,27 @@ def performance_management():
 
     st.divider()
 
-    models = get_models()
+    try:
+        models = get_models()
+    except Exception as e:
+        st.error(f"Unable to load models: {e}")
+        return
 
     if not models:
-
-        st.warning(
-            "No models available. Please add a model first."
-        )
-
+        st.warning("No models available. Please add a model first.")
         return
 
     model_options = {}
 
     for model in models:
-
         label = (
-            model["model_name"]
+            str(model["model_name"])
             + " - "
-            + model["dataset_name"]
+            + str(model["dataset_name"])
             + " (ID: "
             + str(model["model_id"])
             + ")"
         )
-
         model_options[label] = model["model_id"]
 
     selected_model = st.selectbox(
@@ -143,24 +150,18 @@ def performance_management():
 
     problem_type = selected_model_data["problem_type"]
 
-    st.info(
-        f"Problem Type: **{problem_type}**"
-    )
+    st.info(f"Problem Type: **{problem_type}**")
 
     # ------------------------------------------
     # CLASSIFICATION
     # ------------------------------------------
 
     if problem_type == "Classification":
-
-        st.subheader(
-            "📊 Classification Metrics"
-        )
+        st.subheader("📊 Classification Metrics")
 
         col1, col2 = st.columns(2)
 
         with col1:
-
             accuracy = st.number_input(
                 "Accuracy",
                 min_value=0.0,
@@ -178,7 +179,6 @@ def performance_management():
             )
 
         with col2:
-
             recall_score = st.number_input(
                 "Recall",
                 min_value=0.0,
@@ -204,15 +204,11 @@ def performance_management():
     # ------------------------------------------
 
     elif problem_type == "Regression":
-
-        st.subheader(
-            "📊 Regression Metrics"
-        )
+        st.subheader("📊 Regression Metrics")
 
         col1, col2, col3 = st.columns(3)
 
         with col1:
-
             rmse = st.number_input(
                 "RMSE",
                 min_value=0.0,
@@ -221,7 +217,6 @@ def performance_management():
             )
 
         with col2:
-
             mae = st.number_input(
                 "MAE",
                 min_value=0.0,
@@ -230,7 +225,6 @@ def performance_management():
             )
 
         with col3:
-
             r2_score = st.number_input(
                 "R² Score",
                 min_value=-1.0,
@@ -249,10 +243,7 @@ def performance_management():
     # ------------------------------------------
 
     elif problem_type == "Clustering":
-
-        st.subheader(
-            "📊 Clustering Performance"
-        )
+        st.subheader("📊 Clustering Performance")
 
         st.info(
             "Clustering models generally use metrics such as "
@@ -273,10 +264,7 @@ def performance_management():
     # ------------------------------------------
 
     else:
-
-        st.subheader(
-            "📊 Model Performance"
-        )
+        st.subheader("📊 Model Performance")
 
         accuracy = st.number_input(
             "Accuracy",
@@ -316,33 +304,30 @@ def performance_management():
 
     st.divider()
 
-    if st.button(
-        "💾 Save Performance",
-        type="primary"
-    ):
-
-        try:
-
-            save_performance(
-                model_id,
-                accuracy,
-                precision_score,
-                recall_score,
-                f1_score,
-                rmse,
-                mae,
-                r2_score
+    if st.button("💾 Save Performance", type="primary"):
+        if problem_type == "Clustering":
+            st.warning(
+                "Performance metrics for clustering are not supported "
+                "by the current database schema."
             )
+        else:
+            try:
+                save_performance(
+                    model_id,
+                    accuracy,
+                    precision_score,
+                    recall_score,
+                    f1_score,
+                    rmse,
+                    mae,
+                    r2_score
+                )
 
-            st.success(
-                "✅ Performance metrics saved successfully!"
-            )
+                st.success("✅ Performance metrics saved successfully!")
+                st.rerun()
 
-        except Exception as e:
-
-            st.error(
-                f"Error saving performance: {e}"
-            )
+            except Exception as e:
+                st.error(f"Error saving performance: {e}")
 
 
 # ==================================================
@@ -350,49 +335,45 @@ def performance_management():
 # ==================================================
 
 def get_all_performance():
+    connection = None
+    cursor = None
 
-    connection = get_connection()
+    try:
+        connection = get_connection()
+        cursor = connection.cursor(dictionary=True)
 
-    cursor = connection.cursor(
-        dictionary=True
-    )
+        query = """
+            SELECT
+                p.performance_id,
+                p.model_id,
+                d.dataset_name,
+                m.model_name,
+                m.algorithm,
+                m.problem_type,
+                p.accuracy,
+                p.precision_score,
+                p.recall_score,
+                p.f1_score,
+                p.rmse,
+                p.mae,
+                p.r2_score,
+                p.evaluation_date
+            FROM performance p
+            JOIN models m
+                ON p.model_id = m.model_id
+            JOIN datasets d
+                ON m.dataset_id = d.dataset_id
+            ORDER BY p.evaluation_date DESC
+        """
 
-    query = """
-        SELECT
-            p.performance_id,
-            p.model_id,
-            d.dataset_name,
-            m.model_name,
-            m.algorithm,
-            m.problem_type,
-            p.accuracy,
-            p.precision_score,
-            p.recall_score,
-            p.f1_score,
-            p.rmse,
-            p.mae,
-            p.r2_score,
-            p.evaluation_date
+        cursor.execute(query)
+        return cursor.fetchall()
 
-        FROM Performance p
-
-        JOIN Models m
-        ON p.model_id = m.model_id
-
-        JOIN Datasets d
-        ON m.dataset_id = d.dataset_id
-
-        ORDER BY p.evaluation_date DESC
-    """
-
-    cursor.execute(query)
-
-    performance_records = cursor.fetchall()
-
-    cursor.close()
-    connection.close()
-
-    return performance_records
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
 
 
 # ==================================================
@@ -400,7 +381,6 @@ def get_all_performance():
 # ==================================================
 
 def view_performance():
-
     st.title("📋 Performance Library")
 
     st.write(
@@ -409,74 +389,49 @@ def view_performance():
 
     st.divider()
 
-    performance_records = get_all_performance()
-
-    if not performance_records:
-
-        st.info(
-            "No performance records available."
-        )
-
+    try:
+        performance_records = get_all_performance()
+    except Exception as e:
+        st.error(f"Unable to load performance records: {e}")
         return
 
-    df = pd.DataFrame(
-        performance_records
-    )
+    if not performance_records:
+        st.info("No performance records available.")
+        return
+
+    df = pd.DataFrame(performance_records)
 
     # ==========================================
     # SUMMARY
     # ==========================================
 
-    st.subheader(
-        "📊 Performance Summary"
-    )
+    st.subheader("📊 Performance Summary")
 
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-
-        st.metric(
-            "📈 Total Records",
-            len(df)
-        )
+        st.metric("📈 Total Records", len(df))
 
     with col2:
-
-        st.metric(
-            "🤖 Models Evaluated",
-            df["model_id"].nunique()
-        )
+        st.metric("🤖 Models Evaluated", df["model_id"].nunique())
 
     with col3:
-
-        st.metric(
-            "📁 Datasets",
-            df["dataset_name"].nunique()
-        )
+        st.metric("📁 Datasets", df["dataset_name"].nunique())
 
     with col4:
+        classification_count = (
+            df["problem_type"] == "Classification"
+        ).sum()
 
-        classification_count = len(
-            df[
-                df["problem_type"]
-                == "Classification"
-            ]
-        )
-
-        st.metric(
-            "🎯 Classification",
-            classification_count
-        )
+        st.metric("🎯 Classification", int(classification_count))
 
     st.divider()
 
     # ==========================================
-    # SEARCH
+    # SEARCH AND FILTERS
     # ==========================================
 
-    st.subheader(
-        "🔍 Search & Filter"
-    )
+    st.subheader("🔍 Search & Filter")
 
     search_model = st.text_input(
         "Search Model Name",
@@ -485,84 +440,35 @@ def view_performance():
 
     col1, col2, col3 = st.columns(3)
 
-    # ==========================================
-    # DATASET FILTER
-    # ==========================================
-
     with col1:
-
-        dataset_options = ["All"]
-
-        for dataset in df[
-            "dataset_name"
-        ].dropna():
-
-            dataset = str(dataset)
-
-            if dataset not in dataset_options:
-
-                dataset_options.append(
-                    dataset
-                )
+        dataset_options = ["All"] + sorted(
+            df["dataset_name"].dropna().astype(str).unique().tolist()
+        )
 
         selected_dataset = st.selectbox(
             "Dataset",
             dataset_options
         )
 
-    # ==========================================
-    # ALGORITHM FILTER
-    # ==========================================
-
     with col2:
-
-        algorithm_options = ["All"]
-
-        for algorithm in df[
-            "algorithm"
-        ].dropna():
-
-            algorithm = str(algorithm)
-
-            if algorithm not in algorithm_options:
-
-                algorithm_options.append(
-                    algorithm
-                )
+        algorithm_options = ["All"] + sorted(
+            df["algorithm"].dropna().astype(str).unique().tolist()
+        )
 
         selected_algorithm = st.selectbox(
             "Algorithm",
             algorithm_options
         )
 
-    # ==========================================
-    # PROBLEM TYPE
-    # ==========================================
-
     with col3:
-
-        problem_options = ["All"]
-
-        for problem in df[
-            "problem_type"
-        ].dropna():
-
-            problem = str(problem)
-
-            if problem not in problem_options:
-
-                problem_options.append(
-                    problem
-                )
+        problem_options = ["All"] + sorted(
+            df["problem_type"].dropna().astype(str).unique().tolist()
+        )
 
         selected_problem = st.selectbox(
             "Problem Type",
             problem_options
         )
-
-    # ==========================================
-    # SORTING
-    # ==========================================
 
     sort_option = st.selectbox(
         "Sort By",
@@ -577,61 +483,26 @@ def view_performance():
 
     filtered_df = df.copy()
 
-    # ==========================================
-    # SEARCH FILTER
-    # ==========================================
-
     if search_model:
-
         filtered_df = filtered_df[
-            filtered_df[
-                "model_name"
-            ]
+            filtered_df["model_name"]
             .astype(str)
-            .str.contains(
-                search_model,
-                case=False,
-                na=False
-            )
+            .str.contains(search_model, case=False, na=False)
         ]
-
-    # ==========================================
-    # DATASET FILTER
-    # ==========================================
 
     if selected_dataset != "All":
-
         filtered_df = filtered_df[
-            filtered_df[
-                "dataset_name"
-            ].astype(str)
-            == selected_dataset
+            filtered_df["dataset_name"].astype(str) == selected_dataset
         ]
-
-    # ==========================================
-    # ALGORITHM FILTER
-    # ==========================================
 
     if selected_algorithm != "All":
-
         filtered_df = filtered_df[
-            filtered_df[
-                "algorithm"
-            ].astype(str)
-            == selected_algorithm
+            filtered_df["algorithm"].astype(str) == selected_algorithm
         ]
 
-    # ==========================================
-    # PROBLEM TYPE FILTER
-    # ==========================================
-
     if selected_problem != "All":
-
         filtered_df = filtered_df[
-            filtered_df[
-                "problem_type"
-            ].astype(str)
-            == selected_problem
+            filtered_df["problem_type"].astype(str) == selected_problem
         ]
 
     # ==========================================
@@ -639,21 +510,20 @@ def view_performance():
     # ==========================================
 
     if sort_option == "Newest First":
-
         filtered_df = filtered_df.sort_values(
             by="evaluation_date",
-            ascending=False
+            ascending=False,
+            na_position="last"
         )
 
     elif sort_option == "Oldest First":
-
         filtered_df = filtered_df.sort_values(
             by="evaluation_date",
-            ascending=True
+            ascending=True,
+            na_position="last"
         )
 
     elif sort_option == "Highest Accuracy":
-
         filtered_df = filtered_df.sort_values(
             by="accuracy",
             ascending=False,
@@ -661,7 +531,6 @@ def view_performance():
         )
 
     elif sort_option == "Highest F1 Score":
-
         filtered_df = filtered_df.sort_values(
             by="f1_score",
             ascending=False,
@@ -669,7 +538,6 @@ def view_performance():
         )
 
     elif sort_option == "Highest R² Score":
-
         filtered_df = filtered_df.sort_values(
             by="r2_score",
             ascending=False,
@@ -678,235 +546,135 @@ def view_performance():
 
     st.divider()
 
-    st.write(
-        f"📊 **{len(filtered_df)} performance record(s) found**"
-    )
+    st.write(f"📊 **{len(filtered_df)} performance record(s) found**")
+
+    if filtered_df.empty:
+        st.warning("No performance records match the selected filters.")
+        return
 
     # ==========================================
     # DISPLAY TABLE
     # ==========================================
 
-    if not filtered_df.empty:
+    display_columns = [
+        "performance_id",
+        "dataset_name",
+        "model_name",
+        "algorithm",
+        "problem_type",
+        "accuracy",
+        "precision_score",
+        "recall_score",
+        "f1_score",
+        "rmse",
+        "mae",
+        "r2_score",
+        "evaluation_date"
+    ]
 
-        display_columns = [
-            "performance_id",
-            "dataset_name",
-            "model_name",
-            "algorithm",
-            "problem_type",
-            "accuracy",
-            "precision_score",
-            "recall_score",
-            "f1_score",
-            "rmse",
-            "mae",
-            "r2_score",
-            "evaluation_date"
+    st.dataframe(
+        filtered_df[display_columns],
+        use_container_width=True,
+        hide_index=True
+    )
+
+    # ==========================================
+    # BEST CLASSIFICATION MODEL
+    # ==========================================
+
+    classification_df = filtered_df[
+        filtered_df["problem_type"] == "Classification"
+    ]
+
+    valid_accuracy = classification_df[
+        classification_df["accuracy"].notna()
+    ]
+
+    if not valid_accuracy.empty:
+        best_model = valid_accuracy.loc[
+            valid_accuracy["accuracy"].idxmax()
         ]
 
-        st.dataframe(
-            filtered_df[
-                display_columns
-            ],
-            use_container_width=True,
-            hide_index=True
+        st.success(
+            "🏆 Best Classification Model: "
+            + str(best_model["model_name"])
+            + " | Accuracy: "
+            + str(best_model["accuracy"])
         )
 
-        # ======================================
-        # BEST MODEL
-        # ======================================
+    # ==========================================
+    # BEST REGRESSION MODEL
+    # ==========================================
 
-        classification_df = filtered_df[
-            filtered_df[
-                "problem_type"
-            ] == "Classification"
+    regression_df = filtered_df[
+        filtered_df["problem_type"] == "Regression"
+    ]
+
+    valid_r2 = regression_df[
+        regression_df["r2_score"].notna()
+    ]
+
+    if not valid_r2.empty:
+        best_regression = valid_r2.loc[
+            valid_r2["r2_score"].idxmax()
         ]
 
-        if not classification_df.empty:
-
-            best_model = classification_df.loc[
-                classification_df[
-                    "accuracy"
-                ].idxmax()
-            ]
-
-            st.success(
-                "🏆 Best Classification Model: "
-                + str(best_model["model_name"])
-                + " | Accuracy: "
-                + str(best_model["accuracy"])
-            )
-
-        regression_df = filtered_df[
-            filtered_df[
-                "problem_type"
-            ] == "Regression"
-        ]
-
-        if not regression_df.empty:
-
-            valid_r2 = regression_df[
-                regression_df[
-                    "r2_score"
-                ].notna()
-            ]
-
-            if not valid_r2.empty:
-
-                best_regression = valid_r2.loc[
-                    valid_r2[
-                        "r2_score"
-                    ].idxmax()
-                ]
-
-                st.info(
-                    "🏆 Best Regression Model: "
-                    + str(
-                        best_regression[
-                            "model_name"
-                        ]
-                    )
-                    + " | R²: "
-                    + str(
-                        best_regression[
-                            "r2_score"
-                        ]
-                    )
-                )
-
-        # ======================================
-        # DETAILS
-        # ======================================
-
-        st.divider()
-
-        st.subheader(
-            "🔎 Performance Details"
+        st.info(
+            "🏆 Best Regression Model: "
+            + str(best_regression["model_name"])
+            + " | R²: "
+            + str(best_regression["r2_score"])
         )
 
-        performance_ids = [
-            str(x)
-            for x in filtered_df[
-                "performance_id"
-            ]
-        ]
+    # ==========================================
+    # PERFORMANCE DETAILS
+    # ==========================================
 
-        selected_id = st.selectbox(
-            "Select Performance Record",
-            performance_ids
-        )
+    st.divider()
+    st.subheader("🔎 Performance Details")
 
-        selected_record = filtered_df[
-            filtered_df[
-                "performance_id"
-            ] == int(selected_id)
-        ].iloc[0]
+    performance_ids = filtered_df["performance_id"].tolist()
 
-        st.write(
-            "**Dataset:**",
-            selected_record[
-                "dataset_name"
-            ]
-        )
+    selected_id = st.selectbox(
+        "Select Performance Record",
+        performance_ids,
+        format_func=lambda x: str(x)
+    )
 
-        st.write(
-            "**Model:**",
-            selected_record[
-                "model_name"
-            ]
-        )
+    selected_record = filtered_df[
+        filtered_df["performance_id"] == selected_id
+    ].iloc[0]
 
-        st.write(
-            "**Algorithm:**",
-            selected_record[
-                "algorithm"
-            ]
-        )
+    st.write("**Dataset:**", selected_record["dataset_name"])
+    st.write("**Model:**", selected_record["model_name"])
+    st.write("**Algorithm:**", selected_record["algorithm"])
+    st.write("**Problem Type:**", selected_record["problem_type"])
 
-        st.write(
-            "**Problem Type:**",
-            selected_record[
-                "problem_type"
-            ]
-        )
+    if selected_record["problem_type"] == "Classification":
+        col1, col2, col3, col4 = st.columns(4)
 
-        if selected_record[
-            "problem_type"
-        ] == "Classification":
+        with col1:
+            st.metric("Accuracy", selected_record["accuracy"])
 
-            col1, col2, col3, col4 = st.columns(4)
+        with col2:
+            st.metric("Precision", selected_record["precision_score"])
 
-            with col1:
-                st.metric(
-                    "Accuracy",
-                    selected_record[
-                        "accuracy"
-                    ]
-                )
+        with col3:
+            st.metric("Recall", selected_record["recall_score"])
 
-            with col2:
-                st.metric(
-                    "Precision",
-                    selected_record[
-                        "precision_score"
-                    ]
-                )
+        with col4:
+            st.metric("F1 Score", selected_record["f1_score"])
 
-            with col3:
-                st.metric(
-                    "Recall",
-                    selected_record[
-                        "recall_score"
-                    ]
-                )
+    elif selected_record["problem_type"] == "Regression":
+        col1, col2, col3 = st.columns(3)
 
-            with col4:
-                st.metric(
-                    "F1 Score",
-                    selected_record[
-                        "f1_score"
-                    ]
-                )
+        with col1:
+            st.metric("RMSE", selected_record["rmse"])
 
-        elif selected_record[
-            "problem_type"
-        ] == "Regression":
+        with col2:
+            st.metric("MAE", selected_record["mae"])
 
-            col1, col2, col3 = st.columns(3)
+        with col3:
+            st.metric("R² Score", selected_record["r2_score"])
 
-            with col1:
-                st.metric(
-                    "RMSE",
-                    selected_record[
-                        "rmse"
-                    ]
-                )
-
-            with col2:
-                st.metric(
-                    "MAE",
-                    selected_record[
-                        "mae"
-                    ]
-                )
-
-            with col3:
-                st.metric(
-                    "R² Score",
-                    selected_record[
-                        "r2_score"
-                    ]
-                )
-
-        st.write(
-            "**Evaluation Date:**",
-            selected_record[
-                "evaluation_date"
-            ]
-        )
-
-    else:
-
-        st.warning(
-            "No performance records match the selected filters."
-        )
+    st.write("**Evaluation Date:**", selected_record["evaluation_date"])

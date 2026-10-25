@@ -1,0 +1,17 @@
+
+# Python virtual environments
+venv/
+.venv/
+
+# Python cache files
+__pycache__/
+*.pyc
+
+# Secrets
+.env
+.streamlit/secrets.toml
+
+# Local database files
+*.db
+*.sqlite
+*.sqlite3
